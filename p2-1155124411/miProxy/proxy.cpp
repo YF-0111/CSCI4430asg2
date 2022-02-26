@@ -8,13 +8,75 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <time.h>
+#include <math.h>
 
-char *change_http_header(char *http_header, int header_len, char *host, int host_len, int *new_len)
+//TODO: logger: get client ip from struct
+//TODO: change bitrate function from int to double
+//TODO: a function that return bitrate and segment
+//TODO: xml parse bitrate
+//TODO: change bitrate function add non segment request
+
+int BITRATE[]={10,500,1000};
+int BITRATE_LEN=3;
+
+
+int update_bitrate(int new_bitrate,int cur_rate,double alpha){
+    return (int)(new_bitrate*alpha+(1-alpha)*cur_rate);
+}
+
+int get_bitrate(int bandwidth){
+    if(BITRATE[0]>bandwidth){
+        return BITRATE[0];
+    }
+    for(int i=1;i<BITRATE_LEN;i++){
+        if (BITRATE[i]>bandwidth){
+            return BITRATE[i-1];
+        }
+    }
+    return BITRATE[BITRATE_LEN-1];
+}
+
+//print log in the format: <browser-ip> <chunkname> <server-ip> <duration> <tput> <avg-tput> <bitrate>
+//broswer-ip IP address of the browser issuing the request to the proxy.
+//chunkname The name of the file your proxy requested from the web server (that is, the modified file name in the modified HTTP GET message).
+//server-ip The IP address of the server to which the proxy forwarded this request.
+//duration A floating point number representing the number of seconds it took to download this chunk from the web server to the proxy.
+//tput The throughput you measured for the current chunk in Kbps.
+//avg-tput Your current EWMA throughput estimate in Kbps.
+//bitrate The bitrate your proxy requested for this chunk in Kbps.
+void log(FILE* fp,char* browser_ip,char* chunk_name,char* server_ip,int duration,int tput,double avg_tput,int bit_rate){
+    fprintf(fp,"%s %s %s %d %d %.1lf %d\n",browser_ip,chunk_name,server_ip,duration,tput,avg_tput,bit_rate);
+}
+
+int int_to_string(int num,char* res){
+    int num_of_digit= (int)log10(num)+1;
+    for(int i=0;i<num_of_digit;i++){
+        res[num_of_digit-i-1]=num%10+'0';
+        num=num/10;
+    }
+    return num_of_digit;
+}
+
+//this new function changes both bitrate and host
+//should create a function to filter out non-segment requests
+char *change_http_header(int new_bitrate,char *http_header, int header_len, char *host, int host_len, int *new_len)
 {
     char *new_header = (char *)malloc(sizeof(char) * (header_len + host_len));
     memset(new_header, '\0', sizeof(char));
-    int i, j;
-    for (i = 0, j = 0; i < header_len;)
+    //two pointers; i for looping old request; j for new request
+    int i=0, j=0;
+    while(http_header[i]<'0'||http_header[i]>'9'){
+        new_header[j++] = http_header[i++];
+    }
+    while(http_header[i]<='9'&&http_header[i]>='0'){
+        i++;
+    }
+    char bitrate[5]={0}; int digit=0;
+    digit= int_to_string(new_bitrate,bitrate);
+    for(int d=0;d<digit;d++){
+        new_header[j++]=bitrate[d];
+    }
+    for (i, j; i < header_len;)
     {
         if (http_header[i] == '\n')
         {
@@ -70,8 +132,17 @@ int get_pock_length(char *http_header, int header_len)
     return atoi(tmp + 1);
 }
 
-int main()
+int main(int argc, char** argv)
 {
+    if(argc!=6){
+        printf("Usage: ./miProxy --nodns <listen-port> <www-ip> <alpha> <log>\n");
+        return 0;
+    }
+    int proxy_port= atoi(argv[2]);
+    char* server_ip=argv[3];
+    double alpha= atof(argv[4]);
+    char* log_path=argv[5];
+    //creating the proxy_fd where you can read input from browsers
     int proxy_fd, browser_fd;
     proxy_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     int result;
@@ -79,7 +150,7 @@ int main()
     memset(&addr, 0, sizeof(addr));           // every byte = 0
     addr.sin_family = AF_INET;                // use IPv4
     addr.sin_addr.s_addr = htonl(INADDR_ANY); // IPv4 address
-    addr.sin_port = htons(81);                // port
+    addr.sin_port = htons(proxy_port);                // port
     bind(proxy_fd, (struct sockaddr *)&addr, sizeof(addr));
     listen(proxy_fd, 8);
     struct sockaddr_in addr_brower;
@@ -89,8 +160,11 @@ int main()
     FD_SET(proxy_fd, &readfds);
     char buffer[8000];
     long byte_recved;
-    char *host = "10.0.0.1:80";
-    int server_fd = creat_server_socket("10.0.0.1", 80);
+    //creating server fd
+    int server_fd = creat_server_socket(server_ip, 80);
+    int cur_bitrate=0;
+    //open log file
+    FILE* fp= fopen(log_path,"w");
     while (1)
     {
         int fd;
@@ -103,35 +177,54 @@ int main()
             perror("run error");
             exit(1);
         }
+        //For each fd, see if any IO activity occurs
+        //ONLY ONE HTTP REQUEST AND RESPONSE PER SELECT RETURN
         for (fd = 0; fd < FD_SETSIZE; fd++)
         {
             if (FD_ISSET(fd, &testfds))
             {
+                //Input on proxy_fd, indicating that a client is trying to connect
                 if (fd == proxy_fd)
                 {
-                    // printf("create");
+                    //Try to connect
                     addr_len = sizeof(addr_brower);
                     browser_fd = accept(proxy_fd, (struct sockaddr *)&addr_brower, &addr_len);
                     FD_SET(browser_fd, &readfds);
+                    //accept http request from user
                     int len = read(browser_fd, &buffer, 1000);
-                    char *change_http = change_http_header(buffer, len, host, strlen(host), &len);
+                    //change http header
+                    char *change_http = change_http_header(cur_bitrate,buffer, len, server_ip, strlen(server_ip), &len);
+                    //change_bitrate(change_http,)
+                    //send http request to server
                     send(server_fd, change_http, len, MSG_NOSIGNAL);
+                    //timers
+                    time_t start_rcv,end_rcv;
+                    //receive http response from server
+                    //What if Content Length: is not available in the first recv?
+                    time(&start_rcv);
                     len = recv(server_fd, buffer, 4000, MSG_NOSIGNAL);
+                    //send the response (header and some content) to client
                     send(browser_fd, buffer, len, MSG_NOSIGNAL);
+                    //get Content-Length:
                     int sum = get_pock_length(buffer, len);
                     int i = len;
                     while (i < sum)
                     {
+                        //receiving the majority of the body
                         len = recv(server_fd, buffer, 1000, MSG_NOSIGNAL);
                         send(fd, buffer, len, MSG_NOSIGNAL);
                         i += len;
                     }
+                    time(&end_rcv);
+                    int t_new=sum/(end_rcv-start_rcv)*8/1000;
+                    cur_bitrate= update_bitrate(t_new,cur_bitrate,alpha);
 
-                    // printf("removeing");
+                    log(fp,NULL,NULL,server_ip,end_rcv-start_rcv,t_new,cur_bitrate,0);
                 }
                 else
                 {
-                    // ioctl(fd, FIONREAD, &nread);
+                    //another request from established client
+                    // ioctl(fd, FIONREAD, &nrea d);
                     int len = recv(fd, buffer, 4000, MSG_NOSIGNAL);
                     if (len == 0)
                     {
@@ -142,9 +235,12 @@ int main()
                     else
                     {
                         // int len = recv(fd, buffer, 4000, MSG_NOSIGNAL);
-                        char *change_http = change_http_header(buffer, len, host, strlen(host), &len);
+                        char *change_http = change_http_header(cur_bitrate,buffer, len, server_ip, strlen(server_ip), &len);
+                        //change bitrate
                         send(server_fd, change_http, len, MSG_NOSIGNAL);
-
+                        time_t start_rcv;
+                        time_t end_rcv;
+                        time(&start_rcv);
                         len = recv(server_fd, buffer, 1000, MSG_NOSIGNAL);
                         send(fd, buffer, len, MSG_NOSIGNAL);
                         int sum = get_pock_length(buffer, len);
@@ -158,6 +254,9 @@ int main()
                             send(fd, buffer, len, MSG_NOSIGNAL);
                             i += len;
                         }
+                        time(&end_rcv);
+                        int t_new=sum/(end_rcv-start_rcv)*8/1000;
+                        cur_bitrate= update_bitrate(t_new,cur_bitrate,alpha);
                     }
                 }
             }
