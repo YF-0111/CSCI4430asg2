@@ -16,7 +16,7 @@ const int SERVER_PORT = 80;
 double msElapsed(struct timeval *start, struct timeval *end)
 {
     int sec = end->tv_sec - start->tv_sec;
-    int ms = end->tv_sec - start->tv_sec;
+    int ms = end->tv_usec - start->tv_usec;
     return 1000.0 * sec + ms;
 }
 
@@ -127,12 +127,20 @@ int get_bitrate(double bandwidth, int bit_rates[], int len)
 }
 
 // TODO: implement log function for each video chunk
+
+//broswer-ip IP address of the browser issuing the request to the proxy.
+//chunkname The name of the file your proxy requested from the web server (that is, the modified file name in the modified HTTP GET message).
+//server-ip The IP address of the server to which the proxy forwarded this request.
+//duration A floating point number representing the number of seconds it took to download this chunk from the web server to the proxy.
+//tput The throughput you measured for the current chunk in Kbps.
+//avg-tput Your current EWMA throughput estimate in Kbps.
+//bitrate The bitrate your proxy requested for this chunk in Kbps.
 // print log in the format: <browser-ip> <chunkname> <server-ip> <duration> <tput> <avg-tput> <bitrate>
-void log_info(FILE *fp, char *browser_ip, char *chunk_name, char *server_ip, int duration, int tput, double avg_tput, int bit_rate)
+void log_info(FILE *fp, char *browser_ip, char *chunk_name, char *server_ip, double duration, double tput, double avg_tput, int bit_rate)
 {
 
-    fprintf(fp, "%s %s %s %d %d %.1lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
-    printf("%s %s %s %d %d %.1lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
+    fprintf(fp, "%s %s %s %.1f %.1f %.1lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
+    printf("%s %s %s %.1f %.1f %.1lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
 }
 
 int int_to_string(int num, char *res)
@@ -247,6 +255,21 @@ char *get_chunk_name(char *http)
     strncat(name, start, len);
     name[len] = '\0';
     return name;
+}
+
+//GET /1000
+int get_chunk_bitrate(char* http){
+    char bitrate[5]={0};
+    int index_start=5;
+    while(!is_number(http[index_start])){
+        index_start++;
+    }
+    int num_start=index_start;
+    while(is_number(http[index_start])){
+        bitrate[index_start-num_start]=http[index_start];
+        index_start++;
+    }
+    return atoi(bitrate);
 }
 
 int main(int argc, char **argv)
@@ -373,7 +396,9 @@ int main(int argc, char **argv)
                         // unit of sum: bytes; unit of time: ms; unit of t_new Kbps
                         double t_new = sum / msElapsed(&start_rcv, &end_rcv) * 8;
                         cur_bitrate = update_bitrate(t_new, cur_bitrate, alpha);
-                        // log(fp,NULL,NULL,server_ip,end_rcv-start_rcv,t_new,cur_bitrate,0);
+                        char* name = get_chunk_name(change_http);
+                        log_info(fp, inet_ntoa(addr_brower.sin_addr), name, server_ip, msElapsed(&start_rcv, &end_rcv)/1000.0, t_new, cur_bitrate,
+                                 get_chunk_bitrate(change_http));
                     }
 
                     printf("brower:%s ", inet_ntoa(addr_brower.sin_addr));
@@ -459,7 +484,8 @@ int main(int argc, char **argv)
                             // unit of sum: bytes; unit of time: ms; unit of t_new Kbps
                             double t_new = sum / msElapsed(&start_rcv, &end_rcv) * 8;
                             cur_bitrate = update_bitrate(t_new, cur_bitrate, alpha);
-                            log_info(fp, inet_ntoa(addr_brower.sin_addr), name, server_ip, (int)msElapsed(&start_rcv, &end_rcv), sum, t_new, cur_bitrate);
+                            log_info(fp, inet_ntoa(addr_brower.sin_addr), name, server_ip, msElapsed(&start_rcv, &end_rcv)/1000.0, t_new, cur_bitrate,
+                                     get_chunk_bitrate(change_http));
                             free(name);
                         }
                     }
