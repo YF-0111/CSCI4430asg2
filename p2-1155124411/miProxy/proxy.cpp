@@ -17,7 +17,11 @@ double msElapsed(struct timeval *start, struct timeval *end)
 {
     int sec = end->tv_sec - start->tv_sec;
     int ms = end->tv_usec - start->tv_usec;
-    return 1000.0 * sec + ms;
+    double ans=1000.0 * sec + ms/1000.0;
+    if(ans<0){
+    	printf("sec: %d, ms: %d\n",sec,ms);
+    }
+    return ans;
 }
 
 int is_number(char c)
@@ -139,8 +143,9 @@ int get_bitrate(double bandwidth, int bit_rates[], int len)
 void log_info(FILE *fp, char *browser_ip, char *chunk_name, char *server_ip, double duration, double tput, double avg_tput, int bit_rate)
 {
 
-    fprintf(fp, "%s %s %s %.1f %.1f %.1lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
-    printf("%s %s %s %.1f %.1f %.1lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
+    fprintf(fp, "%s %s %s %.2f %.2f %.2lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
+    fflush(fp);
+    printf("%s %s %s %.2f %.2f %.2lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
 }
 
 int int_to_string(int num, char *res)
