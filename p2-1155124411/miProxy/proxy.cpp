@@ -317,8 +317,8 @@ int main(int argc, char **argv)
     // open log file
     FILE *fp = fopen(log_path, "w");
     // bitrates
-    int bitrates[10] = {10, 100, 500, 1000, 0};
-    int bitrate_len = 4;
+    int bitrates[10] = {0};
+    int bitrate_len = 0;
     while (1)
     {
         int fd;
@@ -452,6 +452,7 @@ int main(int argc, char **argv)
                                 i += len;
                             }
                             parse_xml(xml, bitrates, &bitrate_len);
+		            cur_bitrate = bitrates[0];
                             free(xml);
                             change_http = change_http_type(change_http, (char *)"GET", (char *)"/vod/big_buck_bunny_nolist.f4m HTTP/1.1", &len);
                         }
