@@ -252,8 +252,8 @@ int get_pock_length(char *http_header, int *header_len)
 
 char *get_chunk_name(char *http)
 {
-    char *start = strstr(http, "GET ");
-    start += 5;
+    char *start = strstr(http, "vod/");
+    start += 4;
     char *end = strstr(start, " HTTP");
     int len = (int)(end - start);
     char *name = (char *)malloc(sizeof(char) * (len + 1));
