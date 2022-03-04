@@ -252,8 +252,8 @@ int get_pock_length(char *http_header, int *header_len)
 
 char *get_chunk_name(char *http)
 {
-    char *start = strstr(http, "vod/");
-    start += 4;
+    char *start = strstr(http, "GET ");
+    start += 5;
     char *end = strstr(start, " HTTP");
     int len = (int)(end - start);
     char *name = (char *)malloc(sizeof(char) * (len + 1));
@@ -317,8 +317,8 @@ int main(int argc, char **argv)
     // open log file
     FILE *fp = fopen(log_path, "w");
     // bitrates
-    int bitrates[10] = {0};
-    int bitrate_len = 0;
+    int bitrates[10] = {10, 100, 500, 1000, 0};
+    int bitrate_len = 4;
     while (1)
     {
         int fd;
@@ -452,7 +452,6 @@ int main(int argc, char **argv)
                                 i += len;
                             }
                             parse_xml(xml, bitrates, &bitrate_len);
-		            cur_bitrate = bitrates[0];
                             free(xml);
                             change_http = change_http_type(change_http, (char *)"GET", (char *)"/vod/big_buck_bunny_nolist.f4m HTTP/1.1", &len);
                         }
