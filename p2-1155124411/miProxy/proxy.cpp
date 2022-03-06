@@ -13,13 +13,29 @@
 
 const int SERVER_PORT = 80;
 
+struct fd_config
+{
+    int fd;
+    char ip[10];
+    double t_new;
+    double cur_bitrate;
+};
+
+void init_fd_config(fd_config *fg, int fd, char *ip)
+{
+    fg->fd = fd;
+    strcpy(fg->ip, ip);
+    fg->cur_bitrate = 10;
+}
+
 double msElapsed(struct timeval *start, struct timeval *end)
 {
     int sec = end->tv_sec - start->tv_sec;
     int ms = end->tv_usec - start->tv_usec;
-    double ans=1000.0 * sec + ms/1000.0;
-    if(ans<0){
-    	printf("sec: %d, ms: %d\n",sec,ms);
+    double ans = 1000.0 * sec + ms / 1000.0;
+    if (ans < 0)
+    {
+        printf("sec: %d, ms: %d\n", sec, ms);
     }
     return ans;
 }
@@ -35,8 +51,8 @@ int is_number(char c)
 
 char *change_http_type(char *http_header, char *type, char *value, int *new_len)
 {
-    char *new_header = (char *)malloc(sizeof(char) * (strlen(http_header) + strlen(value)));
-    memset(new_header, '\0', sizeof(char));
+    char *new_header = (char *)malloc(sizeof(char) * (strlen(http_header) + strlen(value) + 10));
+    memset(new_header, '\0', strlen(http_header) + strlen(value) + 10);
     char *p = strstr(http_header, type);
     int cat_len = p - http_header;
     strncat(new_header, http_header, cat_len);
@@ -49,7 +65,6 @@ char *change_http_type(char *http_header, char *type, char *value, int *new_len)
     {
         strcat(new_header, ": ");
     }
-
     strcat(new_header, value);
     p = strstr(p, "\r\n");
     strcat(new_header, p);
@@ -101,7 +116,7 @@ void parse_xml(char *http_res, int *rates, int *len)
     while (p = strstr(p, "bitrate=\""))
     {
         p += 9;
-        printf("%d", atoi(p));
+        // printf("%d", atoi(p));
         rates[n++] = atoi(p);
     }
 
@@ -132,20 +147,20 @@ int get_bitrate(double bandwidth, int bit_rates[], int len)
 
 // TODO: implement log function for each video chunk
 
-//broswer-ip IP address of the browser issuing the request to the proxy.
-//chunkname The name of the file your proxy requested from the web server (that is, the modified file name in the modified HTTP GET message).
-//server-ip The IP address of the server to which the proxy forwarded this request.
-//duration A floating point number representing the number of seconds it took to download this chunk from the web server to the proxy.
-//tput The throughput you measured for the current chunk in Kbps.
-//avg-tput Your current EWMA throughput estimate in Kbps.
-//bitrate The bitrate your proxy requested for this chunk in Kbps.
-// print log in the format: <browser-ip> <chunkname> <server-ip> <duration> <tput> <avg-tput> <bitrate>
+// broswer-ip IP address of the browser issuing the request to the proxy.
+// chunkname The name of the file your proxy requested from the web server (that is, the modified file name in the modified HTTP GET message).
+// server-ip The IP address of the server to which the proxy forwarded this request.
+// duration A floating point number representing the number of seconds it took to download this chunk from the web server to the proxy.
+// tput The throughput you measured for the current chunk in Kbps.
+// avg-tput Your current EWMA throughput estimate in Kbps.
+// bitrate The bitrate your proxy requested for this chunk in Kbps.
+//  print log in the format: <browser-ip> <chunkname> <server-ip> <duration> <tput> <avg-tput> <bitrate>
 void log_info(FILE *fp, char *browser_ip, char *chunk_name, char *server_ip, double duration, double tput, double avg_tput, int bit_rate)
 {
 
     fprintf(fp, "%s %s %s %.2f %.2f %.2lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
     fflush(fp);
-    printf("%s %s %s %.2f %.2f %.2lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
+    // printf("%s %s %s %.2f %.2f %.2lf %d\n", browser_ip, chunk_name, server_ip, duration, tput, avg_tput, bit_rate);
 }
 
 int int_to_string(int num, char *res)
@@ -161,58 +176,28 @@ int int_to_string(int num, char *res)
 
 // this new function changes both bitrate and host
 // should create a function to filter out non-segment requests
-char *change_http_header(int new_bitrate, char *http_header, int header_len, char *host, int host_len, int *new_len)
+char *change_http_header(int new_bitrate, char *http_header, char **name, int *new_len)
 {
-    printf("Header Change Starts\n");
-    char *new_header = (char *)malloc(sizeof(char) * (header_len + host_len));
-    memset(new_header, '\0', sizeof(char));
-    // two pointers; i for looping old request; j for new request
     int i = 0, j = 0;
-    while (http_header[i] < '0' || http_header[i] > '9')
-    {
-        new_header[j++] = http_header[i++];
-    }
-    while (http_header[i] <= '9' && http_header[i] >= '0')
-    {
-        i++;
-    }
+    char value[35] = {'\0'};
+    memset(value, '\0', 35);
+    strcat(value, "/vod/");
+    char *tmp = strstr(http_header, "vod/");
     char bitrate[5] = {0};
     int digit = 0;
     digit = int_to_string(new_bitrate, bitrate);
-    for (int d = 0; d < digit; d++)
-    {
-        new_header[j++] = bitrate[d];
-    }
-    for (i, j; i < header_len;)
-    {
-        if (http_header[i] == '\n')
-        {
-            new_header[j++] = http_header[i++];
-            if (http_header[i - 2] == '\r' && http_header[i] == 'H' && http_header[i + 1] == 'o' && http_header[i + 2] == 's' && http_header[i + 3] == 't')
-            {
-                char type[] = "Host: ";
-                for (int z = 0; z < strlen(type); z++)
-                {
-                    new_header[j++] = type[z];
-                }
-                for (int z = 0; z < host_len; z++)
-                {
-                    new_header[j++] = host[z];
-                }
-                new_header[j++] = '\r';
-                new_header[j++] = '\n';
-                while (http_header[i++] != '\n')
-                    ;
-            }
-        }
-        else
-        {
-            new_header[j++] = http_header[i++];
-        }
-    }
-    *new_len = j;
-    // printf("%s\n", new_header);
-    return new_header;
+    char *start = strstr(tmp, "Seg");
+    char *end = strstr(tmp, "HTTP/1.1");
+    int len = end - start;
+    *name = (char *)malloc(sizeof(char) * (len + digit));
+    memset(*name, '\0', len + digit);
+    strncat(*name, bitrate, digit);
+    strncat(*name, start, len - 1);
+    strncat(value, *name, len + digit - 1);
+    strncat(value, end - 1, 9);
+    tmp = change_http_type(http_header, (char *)"GET", value, new_len);
+    free(http_header);
+    return tmp;
 }
 
 int creat_server_socket(char *host, int port)
@@ -236,11 +221,14 @@ int creat_server_socket(char *host, int port)
         perror("don't connect server");
         exit(1);
     }
+    // struct timeval timeout = {30, 0};
+    // setsockopt(server_fd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval));
     return server_fd;
 }
 
 int get_pock_length(char *http_header, int *header_len)
 {
+    // printf("\n%d %d\n", (int)strlen(http_header), *header_len);
     char str_len_key[] = "Content-Length: ";
     char *tmp = strstr(http_header, str_len_key);
     tmp = strchr(tmp, ':');
@@ -252,8 +240,10 @@ int get_pock_length(char *http_header, int *header_len)
 
 char *get_chunk_name(char *http)
 {
-    char *start = strstr(http, "GET ");
-    start += 5;
+    // char *start = strstr(http, "GET ");
+    // start += 5;
+    char *start = strstr(http, "vod/");
+    start += 4;
     char *end = strstr(start, " HTTP");
     int len = (int)(end - start);
     char *name = (char *)malloc(sizeof(char) * (len + 1));
@@ -262,16 +252,19 @@ char *get_chunk_name(char *http)
     return name;
 }
 
-//GET /1000
-int get_chunk_bitrate(char* http){
-    char bitrate[5]={0};
-    int index_start=5;
-    while(!is_number(http[index_start])){
+// GET /1000
+int get_chunk_bitrate(char *http)
+{
+    char bitrate[5] = {0};
+    int index_start = 5;
+    while (!is_number(http[index_start]))
+    {
         index_start++;
     }
-    int num_start=index_start;
-    while(is_number(http[index_start])){
-        bitrate[index_start-num_start]=http[index_start];
+    int num_start = index_start;
+    while (is_number(http[index_start]))
+    {
+        bitrate[index_start - num_start] = http[index_start];
         index_start++;
     }
     return atoi(bitrate);
@@ -314,11 +307,13 @@ int main(int argc, char **argv)
     // creating server fd
     int server_fd = creat_server_socket(server_ip, SERVER_PORT);
     double cur_bitrate = 0.0;
+    struct fd_config fds[8];
+    int fd_num = 0;
     // open log file
     FILE *fp = fopen(log_path, "w");
     // bitrates
-    int bitrates[10] = {10, 100, 500, 1000, 0};
-    int bitrate_len = 4;
+    int bitrates[10] = {0};
+    int bitrate_len = 0;
     while (1)
     {
         int fd;
@@ -330,6 +325,7 @@ int main(int argc, char **argv)
         printf("select returns!\n");
         if (result < 1)
         {
+
             perror("run error");
             exit(1);
         }
@@ -344,43 +340,32 @@ int main(int argc, char **argv)
                 // Input on proxy_fd, indicating that a client is trying to connect
                 if (fd == proxy_fd)
                 {
-                    // Try to connect
                     addr_len = sizeof(addr_brower);
                     browser_fd = accept(proxy_fd, (struct sockaddr *)&addr_brower, &addr_len);
 
                     printf("New connection accepeted with fd: %d\n", browser_fd);
                     FD_SET(browser_fd, &readfds);
-                    // accept http request from user
-                    int len = read(browser_fd, &buffer, 1000);
-                    // change http header accoring to type
-                    int is_video_frag = is_frag_request(buffer);
-                    char *change_http = NULL;
-                    if (is_video_frag)
-                    {
-                        // get bitrate of video with current bitrate
-                        int encoded_rate = get_bitrate(cur_bitrate, bitrates, bitrate_len);
-                        change_http = change_http_header(encoded_rate, buffer, len, server_ip, strlen(server_ip), &len);
-                        // printf("Video-Fragment request received");
-                    }
-                    else
-                    {
+                    addr_len = sizeof(addr_brower);
+                    getpeername(browser_fd, (struct sockaddr *)&addr_brower, &addr_len);
+                    init_fd_config(&fds[fd_num++], browser_fd, inet_ntoa(addr_brower.sin_addr));
 
-                        change_http = change_http_type(buffer, (char *)"Host", server_ip, &len);
-                        // printf("Video-Fragment request received");
-                    }
-                    // send http request to server
-                    send(server_fd, change_http, len, MSG_NOSIGNAL);
-                    // timers
-                    struct timeval start_rcv, end_rcv;
-                    // receive http response from server
-                    // What if Content Length: is not available in the first recv
-                    gettimeofday(&start_rcv, NULL);
+                    int len = read(browser_fd, &buffer, 1000);
+
+                    char *change_http = NULL;
+                    change_http = change_http_type(buffer, (char *)"Host", server_ip, &len);
+                    // puts(change_http);
+                    len = send(server_fd, change_http, len, MSG_NOSIGNAL);
+                    // for (int i = 0; i < len && change_http[i] != '\n'; i++)
+                    // {
+                    //     printf("%c", change_http[i]);
+                    // }
+                    // printf("\n");
+                    free(change_http);
+                    memset(buffer, '\0', 1001);
                     len = recv(server_fd, buffer, 1000, MSG_NOSIGNAL);
 
-                    // server response received
-                    // send the response (header and some content) to client
                     send(browser_fd, buffer, len, MSG_NOSIGNAL);
-                    // get Content-Length:
+
                     int headr_len = 0;
 
                     int sum = get_pock_length(buffer, &headr_len);
@@ -394,17 +379,6 @@ int main(int argc, char **argv)
                         send(browser_fd, buffer, len, MSG_NOSIGNAL);
                         i += len;
                     }
-                    gettimeofday(&end_rcv, NULL);
-                    if (is_video_frag)
-                    {
-                        // assert(end_rcv!=start_rcv);
-                        // unit of sum: bytes; unit of time: ms; unit of t_new Kbps
-                        double t_new = sum / msElapsed(&start_rcv, &end_rcv) * 8;
-                        cur_bitrate = update_bitrate(t_new, cur_bitrate, alpha);
-                        char* name = get_chunk_name(change_http);
-                        log_info(fp, inet_ntoa(addr_brower.sin_addr), name, server_ip, msElapsed(&start_rcv, &end_rcv)/1000.0, t_new, cur_bitrate,
-                                 get_chunk_bitrate(change_http));
-                    }
 
                     printf("brower:%s ", inet_ntoa(addr_brower.sin_addr));
                 }
@@ -412,9 +386,14 @@ int main(int argc, char **argv)
                 {
                     // another request from established client
                     //  ioctl(fd, FIONREAD, &nrea d);
+                    memset(buffer, '\0', 1001);
                     int len = recv(fd, buffer, 1000, MSG_NOSIGNAL);
-                    addr_len = sizeof(addr_brower);
-                    getpeername(fd, (struct sockaddr *)&addr_brower, &addr_len);
+                    fd_config *now_fd = NULL;
+                    for (int t = 0; t < fd_num; t++)
+                    {
+                        if (fd == fds[t].fd)
+                            now_fd = &fds[t];
+                    }
                     char *name = NULL;
                     if (len == 0)
                     {
@@ -426,18 +405,19 @@ int main(int argc, char **argv)
                     {
                         int is_video_frag = is_frag_request(buffer);
                         int is_f4m = is_manifest(buffer);
-                        char *change_http = NULL;
+
+                        char *change_http = change_http_type(buffer, (char *)"Host", server_ip, &len);
+
                         if (is_video_frag)
                         {
-                            int encoded_rate = get_bitrate(cur_bitrate, bitrates, bitrate_len);
-                            change_http = change_http_header(encoded_rate, buffer, len, server_ip, strlen(server_ip), &len);
-                            printf("Video\n");
-                            name = get_chunk_name(change_http);
+                            int encoded_rate = get_bitrate(now_fd->cur_bitrate, bitrates, bitrate_len);
+                            change_http = change_http_header(encoded_rate, change_http, &name, &len);
                         }
                         else if (is_f4m)
                         {
                             change_http = change_http_type(buffer, (char *)"Host", server_ip, &len);
                             send(server_fd, change_http, len, MSG_NOSIGNAL);
+                            memset(buffer, '\0', 1001);
                             int f4m_len = recv(server_fd, buffer, 1000, MSG_NOSIGNAL);
                             int header_len = 0;
                             int sum = get_pock_length(buffer, &header_len);
@@ -452,47 +432,58 @@ int main(int argc, char **argv)
                                 i += len;
                             }
                             parse_xml(xml, bitrates, &bitrate_len);
+                            now_fd->cur_bitrate = bitrates[0];
                             free(xml);
                             change_http = change_http_type(change_http, (char *)"GET", (char *)"/vod/big_buck_bunny_nolist.f4m HTTP/1.1", &len);
                         }
-                        else
-                        {
-                            change_http = change_http_type(buffer, (char *)"Host", server_ip, &len);
-                            printf("Non video\n");
-                        }
                         // change bitrate
-                        send(server_fd, change_http, len, MSG_NOSIGNAL);
-
                         struct timeval start_rcv;
                         struct timeval end_rcv;
                         gettimeofday(&start_rcv, NULL);
+                        int sent_num = send(server_fd, change_http, len, MSG_NOSIGNAL);
+                        // printf("sent :%d ,len: %d\n", sent_num, len);
+                        // for (int i = 0; i < sent_num; i++)
+                        // {
+                        //     printf("%c", change_http[i]);
+                        // }
+                        // printf("\n");
+
+                        memset(buffer, '\0', 1001);
                         len = recv(server_fd, buffer, 1000, MSG_NOSIGNAL);
+                        // for (int i = 0; i < len && change_http[i] != '\n'; i++)
+                        // {
+                        //     printf("%c", buffer[i]);
+                        // }
+                        // printf("\n");
                         int header_len = 0;
+
                         int sum = get_pock_length(buffer, &header_len);
 
                         int i = len - header_len;
 
                         send(fd, buffer, len, MSG_NOSIGNAL);
+                        // printf("%d %d %d %d\n", len, header_len, i, sum);
+
                         while (i < sum)
                         {
+
                             len = recv(server_fd, buffer, 1000, MSG_NOSIGNAL);
                             send(fd, buffer, len, MSG_NOSIGNAL);
                             i += len;
+                            // printf("%d\n", len);
                         }
                         gettimeofday(&end_rcv, NULL);
-                        if (is_manifest(change_http))
-                        {
-                        }
                         if (is_video_frag)
                         {
                             // assert(end_rcv!=start_rcv);
                             // unit of sum: bytes; unit of time: ms; unit of t_new Kbps
-                            double t_new = sum / msElapsed(&start_rcv, &end_rcv) * 8;
-                            cur_bitrate = update_bitrate(t_new, cur_bitrate, alpha);
-                            log_info(fp, inet_ntoa(addr_brower.sin_addr), name, server_ip, msElapsed(&start_rcv, &end_rcv)/1000.0, t_new, cur_bitrate,
+                            now_fd->t_new = sum / msElapsed(&start_rcv, &end_rcv) * 8;
+                            now_fd->cur_bitrate = update_bitrate(now_fd->t_new, now_fd->cur_bitrate, alpha);
+                            log_info(fp, now_fd->ip, name, server_ip, msElapsed(&start_rcv, &end_rcv) / 1000.0, now_fd->t_new, now_fd->cur_bitrate,
                                      get_chunk_bitrate(change_http));
                             free(name);
                         }
+                        free(change_http);
                     }
                 }
             }
